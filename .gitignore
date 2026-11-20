@@ -1,0 +1,25 @@
+# Allow-list: only the three customer-facing packages are tracked.
+# Everything else (internal POC notes, call transcripts, files received from WKS,
+# the mock SBN API, and all prototype iterations) stays local.
+/*
+!/.gitignore
+!/README.md
+!/sbn_ingest_lift_shift/
+!/sbn_ingest_codebundle_warehouse/
+!/TRANSFORMATIONS/
+!/reporting/
+
+# Local notes not for the customer
+/sbn_ingest_lift_shift/99_api_cleanup.sql
+/sbn_ingest_lift_shift/tim_readme.md
+/sbn_ingest_codebundle_warehouse/99_api_cleanup.sql
+/sbn_ingest_codebundle_warehouse/tim_readme.md
+/tim_readme.md
+
+**/__pycache__/
+**/.DS_Store
+**/*.env
+**/.env*
+
+# Tim's demo-account copy (mock-pointed). Local only.
+/sbn_ingest_lift_shift_demo/

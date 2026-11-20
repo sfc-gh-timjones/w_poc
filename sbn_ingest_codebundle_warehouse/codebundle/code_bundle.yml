@@ -1,0 +1,34 @@
+# =============================================================================
+# code_bundle.yml  —  how Snowflake runs this Code Bundle
+#
+# compute_type: warehouse  ->  the code runs on the warehouse that's active when
+# EXECUTE CODE BUNDLE is called (USE WAREHOUSE INGESTION_WH, or the task's
+# WAREHOUSE). No compute pool. (Running Code Bundles on warehouses is in
+# Public Preview; on compute pools it's generally available.)
+# =============================================================================
+bundle:
+  type: custom
+  compute_type: warehouse
+  language: python
+
+  compute_options:
+    runtime_version: '3.12'     # Python version on the warehouse
+
+  # Outbound access to the SBN API (network rule for wks.simplebutneeded.net:443).
+  # Snowflake blocks outbound internet calls unless an integration allows them.
+  external_access_integrations:
+    - SBN_INGEST_EAI
+
+  # ------------------------------------------------------------------
+  # IF YOU USE A DIFFERENT DATABASE OR SCHEMA than WKS_POC.SBN_INGEST,
+  # change the 4 values marked <<< below (Code Bundle settings need full names).
+  # ------------------------------------------------------------------
+  # The SBN username and password. sbn_daily.py reads it at run time.
+  secrets:
+    - WKS_POC.SBN_INGEST.SBN_CREDENTIALS          # <<<
+
+  env_vars:
+    - SBN_SECRET: 'WKS_POC.SBN_INGEST.SBN_CREDENTIALS'   # <<< same secret as above
+    - TARGET_DATABASE: 'WKS_POC'                               # <<< where the raw tables live
+    - TARGET_SCHEMA: 'SBN_INGEST'                       # <<<
+    # SBN_BASE_URL is not set, so the real SBN API is used: https://wks.simplebutneeded.net/api/v1

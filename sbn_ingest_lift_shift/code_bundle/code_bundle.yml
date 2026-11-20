@@ -1,0 +1,125 @@
+# =============================================================================
+# code_bundle.yml  —  Snowflake Code Bundle configuration
+#
+# This file tells Snowflake HOW to run the notebook and backfill script. It
+# replaces two things from the Domo setup:
+#   1. The Domo Workspace settings (which machine to run on, which Python version)
+#   2. The sbn.env file (which held the SBN username and password)
+#
+# HOW IT WORKS
+# When you run EXECUTE CODE BUNDLE SBN_DAILY ENTRYPOINT = 'SBN_Completed_Inspections_Daily.ipynb',
+# Snowflake reads this file and sets up the execution environment before the
+# first line of Python runs: it starts the right compute pool, connects to the
+# warehouse, installs packages, mounts stages, injects secrets as environment
+# variables, and sets the env vars listed here.
+# =============================================================================
+
+bundle:
+  type: custom            # a custom-built bundle (as opposed to a Snowflake-managed template)
+  compute_type: compute_pool  # run on a container (SPCS), not a standard warehouse
+  language: python
+
+  # ---------------------------------------------------------------------------
+  # COMPUTE: where and how the Python code runs
+  # ---------------------------------------------------------------------------
+  compute_options:
+    # The Snowflake compute pool that runs the Python container.
+    # Created in 01_setup.sql. CPU_X64_XS (1 vCPU, 6 GiB) is the smallest size.
+    compute_pool: INGESTION_POOL
+
+    # The warehouse used for SQL queries the notebook makes (reading and
+    # writing the Snowflake table). The Python compute pool handles the
+    # API calls; the warehouse handles the database work.
+    query_warehouse: INGESTION_WH
+
+    # The Python runtime version. This determines the Python version (3.12)
+    # and what packages come pre-installed (pandas, requests, snowpark, etc.).
+    runtime_version: 'V2.9-CPU-PY3.12'
+
+  # ---------------------------------------------------------------------------
+  # PACKAGES: extra Python packages to install before the notebook runs
+  #
+  # The runtime image already includes pandas, requests, and the Snowflake
+  # connector — everything the notebook and sbn_common.py need. The only extra
+  # package is python-dotenv, because the notebook imports it on the first line:
+  #     from dotenv import load_dotenv
+  # In Domo that library was pre-installed. Here we install it from PyPI so
+  # that import doesn't fail and WKS's notebook code doesn't need to change.
+  # If WKS's code is ever updated to remove the dotenv import, this section and
+  # the requirements.txt file can both be removed.
+  # ---------------------------------------------------------------------------
+  properties:
+    requirements_file: requirements.txt  # contains a single line: python-dotenv
+
+  # artifact_repositories tells Snowflake where to find the packages listed in
+  # requirements.txt. snowflake.snowpark.pypi_shared_repository is Snowflake's
+  # managed PyPI mirror — no external internet access is needed to install from it.
+  # This is only here because requirements.txt exists. If requirements.txt is
+  # removed (once dotenv is no longer needed), this can be removed too.
+  artifact_repositories:
+    - snowflake.snowpark.pypi_shared_repository
+
+  # ---------------------------------------------------------------------------
+  # NETWORK ACCESS: allow the notebook to call the SBN API
+  #
+  # By default, Snowflake blocks all outbound internet calls from a Code Bundle.
+  # This integration lifts that restriction, but only for the specific host
+  # defined in SBN_API_NETWORK_RULE (wks.simplebutneeded.net:443).
+  # Created in 01_setup.sql.
+  # ---------------------------------------------------------------------------
+  external_access_integrations:
+    - SBN_API_EAI
+
+  # ---------------------------------------------------------------------------
+  # SECRETS: inject SBN credentials into the container
+  #
+  # The secret listed here is "mounted" into the container by Snowflake before
+  # the notebook starts. The notebook reads it using:
+  #     get_username_password("wks_poc/sbn_lift_shift/sbn_credentials")
+  # The path is the secret's database/schema/name in lowercase — not the SQL
+  # object name. This secret stores the same SBN_USERNAME and SBN_PASSWORD
+  # values that were previously in sbn.env.
+  #
+  # IF YOU USE A DIFFERENT DATABASE OR SCHEMA than WKS_POC.SBN_LIFT_SHIFT,
+  # update the 5 values marked <<< below (full names required here).
+  # ---------------------------------------------------------------------------
+  secrets:
+    - WKS_POC.SBN_LIFT_SHIFT.SBN_CREDENTIALS                     # <<<
+
+  # ---------------------------------------------------------------------------
+  # STAGE MOUNT: give the notebook a writable working folder
+  #
+  # The Code Bundle's own folder (where the .ipynb and .py files live) is
+  # read-only. The notebook writes ./state/last_row_count.txt between runs
+  # (used by its safety check). To make that work, we mount the NOTEBOOK_STATE
+  # Snowflake stage at /mnt/sbn_state. The notebook then does os.chdir to that
+  # path so its file writes go to the stage and survive between runs — the same
+  # way files in a Domo Workspace folder persist between runs.
+  # ---------------------------------------------------------------------------
+  stage_mounts:
+    sbn_state:
+      stage_url: '@WKS_POC.SBN_LIFT_SHIFT.NOTEBOOK_STATE'        # <<<
+      mount_path: '/mnt/sbn_state'   # where the stage appears inside the container
+
+  # ---------------------------------------------------------------------------
+  # ENVIRONMENT VARIABLES: configuration the notebook reads at runtime
+  #
+  # These are injected as standard OS environment variables before the notebook
+  # starts. The notebook reads them with os.getenv("VAR_NAME").
+  # ---------------------------------------------------------------------------
+  env_vars:
+    # The path to the SBN credentials secret, in database/schema/name lowercase
+    # format. The notebook passes this to get_username_password() to read the
+    # SBN_USERNAME and SBN_PASSWORD values.
+    - SBN_SECRET_PATH: 'wks_poc/sbn_lift_shift/sbn_credentials'  # <<<
+
+    # The Snowflake database where the former Domo datasets are stored as tables.
+    - DOMO_DATABASE: 'WKS_POC'                        # <<<
+
+    # The Snowflake schema where the former Domo datasets are stored as tables.
+    - DOMO_SCHEMA: 'SBN_LIFT_SHIFT'                              # <<<
+
+    # SBN_BASE_URL is intentionally NOT set here, so sbn_common.py falls back
+    # to its built-in default: https://wks.simplebutneeded.net/api/v1
+    # (the real SBN API). To point at a different URL, add this line:
+    #   - SBN_BASE_URL: 'https://your-url-here'
